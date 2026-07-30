@@ -1,0 +1,24 @@
+{
+  "sourceImage": "images/stage_7-2.png",
+  "boardRows": 5,
+  "boardCols": 6,
+  "cellPixelSize": 120,
+  "note": "Solucion verificada por backtracking exhaustivo (exact cover, todas las rotaciones/flips). 0 de las piezas ya colocadas en el screenshot original coinciden con la solucion final: requiere reacomodar las 6.",
+  "initialState": {
+    "blue_Y":   [[0,0],[0,1],[0,2],[0,3],[1,1]],
+    "magenta_U":[[1,0],[1,2],[2,0],[2,1],[2,2]],
+    "greenLight_W": [[1,3],[1,4],[2,3],[3,2],[3,3]],
+    "greenDark_P":  [[3,0],[3,1],[4,0],[4,1],[4,2]],
+    "yellow_L": [[0,4],[0,5],[1,5],[2,5],[3,5]],
+    "purple_N_loose_shape": [[0,1],[1,1],[2,0],[2,1],[3,0]]
+  },
+  "solution": {
+    "grid": [
+      ["greenDark_P","greenDark_P","magenta_U","magenta_U","magenta_U","blue_Y"],
+      ["greenDark_P","greenDark_P","magenta_U","greenLight_W","magenta_U","blue_Y"],
+      ["greenDark_P","greenLight_W","greenLight_W","greenLight_W","blue_Y","blue_Y"],
+      ["yellow_L","greenLight_W","purple_N_loose_shape","purple_N_loose_shape","purple_N_loose_shape","blue_Y"],
+      ["yellow_L","yellow_L","yellow_L","yellow_L","purple_N_loose_shape","purple_N_loose_shape"]
+    ]
+  }
+}
