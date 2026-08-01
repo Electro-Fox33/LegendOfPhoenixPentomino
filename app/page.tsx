@@ -22,6 +22,17 @@ interface SolveResponse {
 
 type Phase = "idle" | "loading" | "needsConfirmation" | "done" | "error";
 
+async function safeParseJson(res: Response) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `El servidor no devolvió JSON (status ${res.status}). Respuesta: ${text.slice(0, 200)}`
+    );
+  }
+}
+
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<SolveResponse | null>(null);
@@ -43,7 +54,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append("image", file);
       const res = await fetch("/api/solve", { method: "POST", body: formData });
-      const data: SolveResponse = await res.json();
+      const data: SolveResponse = await safeParseJson(res);
 
       if (!res.ok) {
         setErrorMessage(data.error ?? "No se pudo procesar la imagen.");
@@ -83,7 +94,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ result, confirmations }),
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
 
       if (!res.ok || !data.solution) {
         setErrorMessage((data.warnings ?? [data.error]).filter(Boolean).join(" "));
@@ -110,7 +121,6 @@ export default function Home() {
         <input
           type="file"
           accept="image/*"
-          capture="environment"
           onChange={handleFileChange}
           className="hidden"
         />
