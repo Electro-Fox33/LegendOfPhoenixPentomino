@@ -50,9 +50,45 @@ export interface LoosePiece {
   shape: [number, number][];
 }
 
+/**
+ * Una pieza que se detecto pero con una cantidad de celdas distinta a 5 --
+ * no se puede confiar en ella automaticamente. Trae la info necesaria para
+ * que la UI muestre una grilla chica alrededor de la zona y el usuario
+ * confirme/corrija a mano cuales celdas son parte de la pieza.
+ */
+export interface AmbiguousPiece {
+  id: string;
+  color: RGB;
+  /** Celdas detectadas actualmente (coords absolutas en la grilla de piezas sueltas). */
+  detectedCells: [number, number][];
+  /** Region candidata (bounding box expandido en 1 celda de margen) para mostrar en la UI. */
+  region: { minRow: number; maxRow: number; minCol: number; maxCol: number };
+  /** Color de cada celda dentro de la region (para pintar la grilla de confirmacion). null = fondo/vacio. */
+  regionColors: (RGB | null)[][];
+}
+
 export interface LoosePieceDetectionResult {
   pieces: LoosePiece[];
+  ambiguousPieces: AmbiguousPiece[];
   warnings: string[];
+}
+
+/**
+ * Construye la pieza final a partir de la seleccion corregida manualmente
+ * por el usuario (celdas absolutas dentro de la region que aparecian en
+ * AmbiguousPiece.region).
+ */
+export function buildLoosePieceFromSelection(
+  id: string,
+  color: RGB,
+  selectedAbsoluteCells: [number, number][]
+): LoosePiece {
+  const minR = Math.min(...selectedAbsoluteCells.map((c) => c[0]));
+  const minC = Math.min(...selectedAbsoluteCells.map((c) => c[1]));
+  const shape = selectedAbsoluteCells
+    .map(([r, c]) => [r - minR, c - minC] as [number, number])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return { id, color, shape };
 }
 
 const CELL_SIZE = 120;
@@ -192,7 +228,7 @@ export function detectLoosePieces(img: DecodedImage, boardBottom: number): Loose
   const cols = colLines.length - 1;
   if (rows < 1 || cols < 1) {
     warnings.push("No se pudo determinar la grilla de piezas sueltas.");
-    return { pieces: [], warnings };
+    return { pieces: [], ambiguousPieces: [], warnings };
   }
 
   const grid: (RGB | null)[][] = [];
@@ -236,24 +272,48 @@ export function detectLoosePieces(img: DecodedImage, boardBottom: number): Loose
   }
 
   const pieces: LoosePiece[] = [];
+  const ambiguousPieces: AmbiguousPiece[] = [];
   let pieceCounter = 0;
-  for (const { cells, refColor } of pieceCellSets) {
-      if (cells.length !== 5) {
-        warnings.push(
-          `Una pieza suelta detectada tiene ${cells.length} celdas en vez de 5 ` +
-          `(color aprox. rgb(${refColor.r},${refColor.g},${refColor.b})). ` +
-          `Puede ser una pieza de tono calido (naranja/amarillo) confundida con el fondo -- revisar manualmente.`
-        );
-      }
+  let ambiguousCounter = 0;
 
+  for (const { cells, refColor } of pieceCellSets) {
+    if (cells.length === 5) {
       const minR = Math.min(...cells.map((c) => c[0]));
       const minC = Math.min(...cells.map((c) => c[1]));
       const shape = cells
         .map(([r2, c2]) => [r2 - minR, c2 - minC] as [number, number])
         .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-
       pieces.push({ id: `loose_piece_${pieceCounter++}`, color: refColor, shape });
+      continue;
+    }
+
+    warnings.push(
+      `Una pieza suelta detectada tiene ${cells.length} celdas en vez de 5 ` +
+      `(color aprox. rgb(${refColor.r},${refColor.g},${refColor.b})). ` +
+      `Se pide confirmacion manual de la forma antes de resolver.`
+    );
+
+    // region candidata: bounding box de lo detectado + 1 celda de margen por cada lado
+    const minRow = Math.max(0, Math.min(...cells.map((c) => c[0])) - 1);
+    const maxRow = Math.min(rows - 1, Math.max(...cells.map((c) => c[0])) + 1);
+    const minCol = Math.max(0, Math.min(...cells.map((c) => c[1])) - 1);
+    const maxCol = Math.min(cols - 1, Math.max(...cells.map((c) => c[1])) + 1);
+
+    const regionColors: (RGB | null)[][] = [];
+    for (let r = minRow; r <= maxRow; r++) {
+      const row: (RGB | null)[] = [];
+      for (let c = minCol; c <= maxCol; c++) row.push(grid[r][c]);
+      regionColors.push(row);
+    }
+
+    ambiguousPieces.push({
+      id: `ambiguous_piece_${ambiguousCounter++}`,
+      color: refColor,
+      detectedCells: cells,
+      region: { minRow, maxRow, minCol, maxCol },
+      regionColors,
+    });
   }
 
-  return { pieces, warnings };
+  return { pieces, ambiguousPieces, warnings };
 }
