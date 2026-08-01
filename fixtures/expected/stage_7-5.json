@@ -1,0 +1,24 @@
+{
+  "sourceImage": "images/stage_7-5.png",
+  "boardRows": 5,
+  "boardCols": 6,
+  "cellPixelSize": 120,
+  "note": "Solucion verificada por backtracking exhaustivo. 0 de las piezas ya colocadas coinciden con la solucion final: requiere reacomodar las 6 (se probo mover 1 sola y 2, ninguna alcanza).",
+  "initialState": {
+    "yellow_L": [[0,1],[0,2],[0,3],[0,4],[1,1]],
+    "red_T":    [[0,5],[1,3],[1,4],[1,5],[2,5]],
+    "green_Z":  [[1,2],[2,2],[2,3],[2,4],[3,4]],
+    "orange_L2_loose_shape": [[0,0],[1,0],[2,0],[2,1],[2,2]],
+    "purple_U_loose_shape":  [[0,0],[0,2],[1,0],[1,1],[1,2]],
+    "purple_N_loose_shape":  [[0,0],[0,1],[1,1],[1,2],[1,3]]
+  },
+  "solution": {
+    "grid": [
+      ["yellow_L","yellow_L","purple_N_loose_shape","purple_N_loose_shape","purple_N_loose_shape","green_Z"],
+      ["yellow_L","purple_N_loose_shape","purple_N_loose_shape","green_Z","green_Z","green_Z"],
+      ["yellow_L","red_T","purple_U_loose_shape","green_Z","purple_U_loose_shape","orange_L2_loose_shape"],
+      ["yellow_L","red_T","purple_U_loose_shape","purple_U_loose_shape","purple_U_loose_shape","orange_L2_loose_shape"],
+      ["red_T","red_T","red_T","orange_L2_loose_shape","orange_L2_loose_shape","orange_L2_loose_shape"]
+    ]
+  }
+}
