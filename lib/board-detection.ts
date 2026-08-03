@@ -26,8 +26,20 @@ export interface BoardState {
 }
 
 // --- Constantes derivadas de analizar screenshots reales del juego ---
-const BOARD_SEARCH_X: [number, number] = [150, 920];
-const BOARD_SEARCH_Y: [number, number] = [400, 1040];
+//
+// OJO: estos limites son una ventana de busqueda amplia, NO los bordes
+// exactos del tablero. El tablero real cambia de ancho/alto segun el stage
+// (un tablero 7x5 usa celdas mas chicas que uno 6x5 para entrar en el mismo
+// espacio de pantalla), asi que el contenido real puede empezar/terminar en
+// distintos pixeles de un stage a otro. Verificado contra:
+//   - stage 6x5 (7-2, 7-5, 7-6): contenido x=163..908, y=403..1030
+//   - stage 7x5 (stage 131):     contenido x=120..954, y=418..1018
+// La ventana de abajo tiene margen de sobra para ambos casos. Si en el
+// futuro aparece un tablero mas ancho/alto todavia, agrandar esto de nuevo
+// (o, mejor, reemplazar por deteccion dinamica del marco - ver nota al
+// final del archivo).
+const BOARD_SEARCH_X: [number, number] = [60, 1010];
+const BOARD_SEARCH_Y: [number, number] = [385, 1055];
 const BACKGROUND_COLOR: RGB = { r: 230, g: 200, b: 188 };
 const BACKGROUND_TOLERANCE = 20;
 const SAME_PIECE_TOLERANCE = 20;
@@ -172,5 +184,22 @@ export async function detectBoard(buffer: Buffer): Promise<BoardState> {
   if (colBoundaries.length < 2 || rowBoundaries.length < 2) {
     throw new Error("No se pudo detectar el tablero en la imagen.");
   }
+
+  const cols = colBoundaries.length - 1;
+  const rows = rowBoundaries.length - 1;
+
+  // Chequeo defensivo: si algun dia BOARD_SEARCH_X/Y vuelven a quedar
+  // cortos (tablero mas grande todavia, o screenshot con otra resolucion),
+  // preferimos fallar ruidosamente en vez de devolver una grilla recortada
+  // en silencio como paso con el 7x5. Ajustar el rango si el juego llega a
+  // tener tableros fuera de este rango.
+  if (cols < 4 || cols > 9 || rows < 4 || rows > 9) {
+    throw new Error(
+      `Grilla detectada con forma implausible (${rows}x${cols}). ` +
+        `Probablemente BOARD_SEARCH_X/Y esta recortando el tablero real - ` +
+        `revisar los limites de busqueda contra esta imagen.`
+    );
+  }
+
   return classifyBoard(img, rowBoundaries, colBoundaries);
 }
