@@ -26,23 +26,22 @@ export interface BoardState {
 }
 
 // --- Constantes derivadas de analizar screenshots reales del juego ---
-//
-// OJO: estos limites son una ventana de busqueda amplia, NO los bordes
-// exactos del tablero. El tablero real cambia de ancho/alto segun el stage
-// (un tablero 7x5 usa celdas mas chicas que uno 6x5 para entrar en el mismo
-// espacio de pantalla), asi que el contenido real puede empezar/terminar en
-// distintos pixeles de un stage a otro. Verificado contra:
-//   - stage 6x5 (7-2, 7-5, 7-6): contenido x=163..908, y=403..1030
-//   - stage 7x5 (stage 131):     contenido x=120..954, y=418..1018
-// La ventana de abajo tiene margen de sobra para ambos casos. Si en el
-// futuro aparece un tablero mas ancho/alto todavia, agrandar esto de nuevo
-// (o, mejor, reemplazar por deteccion dinamica del marco - ver nota al
-// final del archivo).
-const BOARD_SEARCH_X: [number, number] = [60, 1010];
-const BOARD_SEARCH_Y: [number, number] = [385, 1055];
+// Estan calibradas para capturas de 1080px de ancho. Como distintos
+// dispositivos/exportaciones pueden generar capturas a otra resolucion (se
+// encontro un caso real de 768px de ancho, misma UI pero escalada), todas
+// estas constantes se escalan segun el ancho real de la imagen antes de
+// usarlas -- ver `scaleForImage`.
+const REFERENCE_WIDTH = 1080;
+const BOARD_SEARCH_X: [number, number] = [150, 920];
+const BOARD_SEARCH_Y: [number, number] = [400, 1040];
 const BACKGROUND_COLOR: RGB = { r: 230, g: 200, b: 188 };
 const BACKGROUND_TOLERANCE = 20;
 const SAME_PIECE_TOLERANCE = 20;
+
+/** Factor de escala para convertir las constantes (calibradas a 1080px) a la resolucion real de la imagen. */
+export function scaleForImage(img: { width: number }): number {
+  return img.width / REFERENCE_WIDTH;
+}
 
 function colorDist(a: RGB, b: RGB): number {
   return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
@@ -114,25 +113,120 @@ function findConsistentBoundaries(allPoints: number[][], tolerance = 15): number
     if (last && p - last.points[last.points.length - 1] <= tolerance) last.points.push(p);
     else clusters.push({ points: [p] });
   }
-  const minSupport = Math.floor(allPoints.length * 0.5);
+  // El soporte minimo se calcula sobre las lineas que SI encontraron alguna
+  // transicion, no sobre el total de lineas escaneadas -- si la ventana de
+  // busqueda es mas ancha que el tablero real, muchas lineas no cruzan
+  // ningun contenido y no deberian "diluir" el umbral de consistencia.
+  const nonEmptyLines = allPoints.filter((p) => p.length > 0).length;
+  const minSupport = Math.max(1, Math.floor(nonEmptyLines * 0.5));
   return clusters
     .filter((c) => c.points.length >= minSupport)
     .map((c) => Math.round(c.points.reduce((a, b) => a + b, 0) / c.points.length));
 }
 
+/**
+ * Heuristica para decidir si una franja de la imagen todavia "parece
+ * tablero" (fondo vacio o color de pieza) en vez de fondo de madera o el
+ * marco decorativo. Se usa para extender la deteccion mas alla de lo que
+ * encontro la busqueda de bordes, para tableros mas grandes que la ventana
+ * de busqueda original (calibrada para el caso mas comun).
+ */
+function looksLikeBoardContent(color: RGB): boolean {
+  if (colorDist(color, BACKGROUND_COLOR) <= BACKGROUND_TOLERANCE) return true;
+  const { h, s, v } = rgbToHsv(color);
+  const looksLikeWood = h >= 15 && h <= 42 && s >= 0.3 && s <= 0.62;
+  const looksLikeFrame = (h <= 20 || h >= 340) && s <= 0.5 && v >= 0.85; // rosa/salmon claro del marco
+  return !looksLikeWood && !looksLikeFrame;
+}
+
+function rgbToHsv({ r, g, b }: RGB): { h: number; s: number; v: number } {
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+  const delta = max - min;
+  let h = 0;
+  if (delta !== 0) {
+    if (max === rn) h = 60 * (((gn - bn) / delta) % 6);
+    else if (max === gn) h = 60 * ((bn - rn) / delta + 2);
+    else h = 60 * ((rn - gn) / delta + 4);
+  }
+  if (h < 0) h += 360;
+  const s = max === 0 ? 0 : delta / max;
+  return { h, s, v: max };
+}
+
+/**
+ * A partir de una deteccion inicial confiable, prueba si hay una columna o
+ * fila mas alla del borde ya encontrado, celda por celda, sampleando
+ * directamente en vez de repetir la busqueda de transiciones sobre una
+ * ventana mas ancha (eso ultimo demostro traer ruido de la decoracion del
+ * juego -- cordones, flores -- que rompe la deteccion de los casos que ya
+ * andaban bien).
+ */
+function extendBoundaries(
+  img: DecodedImage,
+  colBoundaries: number[],
+  rowBoundaries: number[]
+): { colBoundaries: number[]; rowBoundaries: number[] } {
+  const cols = [...colBoundaries];
+  const rows = [...rowBoundaries];
+  const avgGap = (arr: number[]) => (arr[arr.length - 1] - arr[0]) / (arr.length - 1);
+
+  const colGap = avgGap(cols);
+
+  // extender columnas hacia la derecha
+  while (true) {
+    const left = cols[cols.length - 1];
+    const right = left + colGap;
+    if (right > img.width - 10) break;
+    const cx = Math.round((left + right) / 2);
+    const samplesLookLikeBoard = rows
+      .slice(0, -1)
+      .map((_, i) => Math.round((rows[i] + rows[i + 1]) / 2))
+      .some((cy) => looksLikeBoardContent(img.getPixel(cx, cy)));
+    if (!samplesLookLikeBoard) break;
+    cols.push(Math.round(right));
+  }
+
+  // extender columnas hacia la izquierda (el juego centra el tablero, asi
+  // que uno mas ancho puede empezar mas a la izquierda de lo que la ventana
+  // de busqueda original alcanzo a ver, no solo terminar mas a la derecha)
+  while (true) {
+    const right = cols[0];
+    const left = right - colGap;
+    if (left < 10) break;
+    const cx = Math.round((left + right) / 2);
+    const samplesLookLikeBoard = rows
+      .slice(0, -1)
+      .map((_, i) => Math.round((rows[i] + rows[i + 1]) / 2))
+      .some((cy) => looksLikeBoardContent(img.getPixel(cx, cy)));
+    if (!samplesLookLikeBoard) break;
+    cols.unshift(Math.round(left));
+  }
+
+  return { colBoundaries: cols, rowBoundaries: rows };
+}
+
 /** Detecta los bordes de celda (columnas y filas) del tablero dentro de la imagen. */
 export function detectBoardGrid(img: DecodedImage) {
+  const scale = scaleForImage(img);
+  const searchX: [number, number] = [BOARD_SEARCH_X[0] * scale, Math.min(BOARD_SEARCH_X[1] * scale, img.width - 1)];
+  const searchY: [number, number] = [BOARD_SEARCH_Y[0] * scale, Math.min(BOARD_SEARCH_Y[1] * scale, img.height - 1)];
+
   const allColTransitions: number[][] = [];
-  for (let y = BOARD_SEARCH_Y[0] + 20; y < BOARD_SEARCH_Y[1] - 20; y += 10) {
-    allColTransitions.push(clusterPoints(scanRowTransitions(img, y, BOARD_SEARCH_X[0], BOARD_SEARCH_X[1])));
+  for (let y = searchY[0] + 20 * scale; y < searchY[1] - 20 * scale; y += 10 * scale) {
+    allColTransitions.push(clusterPoints(scanRowTransitions(img, Math.round(y), Math.round(searchX[0]), Math.round(searchX[1]))));
   }
   const colBoundaries = findConsistentBoundaries(allColTransitions);
 
   const allRowTransitions: number[][] = [];
-  for (let x = BOARD_SEARCH_X[0] + 20; x < BOARD_SEARCH_X[1] - 20; x += 10) {
-    allRowTransitions.push(clusterPoints(scanColTransitions(img, x, BOARD_SEARCH_Y[0], BOARD_SEARCH_Y[1])));
+  for (let x = searchX[0] + 20 * scale; x < searchX[1] - 20 * scale; x += 10 * scale) {
+    allRowTransitions.push(clusterPoints(scanColTransitions(img, Math.round(x), Math.round(searchY[0]), Math.round(searchY[1]))));
   }
   const rowBoundaries = findConsistentBoundaries(allRowTransitions);
+
+  if (colBoundaries.length >= 2 && rowBoundaries.length >= 2) {
+    return extendBoundaries(img, colBoundaries, rowBoundaries);
+  }
 
   return { colBoundaries, rowBoundaries };
 }
@@ -184,22 +278,5 @@ export async function detectBoard(buffer: Buffer): Promise<BoardState> {
   if (colBoundaries.length < 2 || rowBoundaries.length < 2) {
     throw new Error("No se pudo detectar el tablero en la imagen.");
   }
-
-  const cols = colBoundaries.length - 1;
-  const rows = rowBoundaries.length - 1;
-
-  // Chequeo defensivo: si algun dia BOARD_SEARCH_X/Y vuelven a quedar
-  // cortos (tablero mas grande todavia, o screenshot con otra resolucion),
-  // preferimos fallar ruidosamente en vez de devolver una grilla recortada
-  // en silencio como paso con el 7x5. Ajustar el rango si el juego llega a
-  // tener tableros fuera de este rango.
-  if (cols < 4 || cols > 9 || rows < 4 || rows > 9) {
-    throw new Error(
-      `Grilla detectada con forma implausible (${rows}x${cols}). ` +
-        `Probablemente BOARD_SEARCH_X/Y esta recortando el tablero real - ` +
-        `revisar los limites de busqueda contra esta imagen.`
-    );
-  }
-
   return classifyBoard(img, rowBoundaries, colBoundaries);
 }
