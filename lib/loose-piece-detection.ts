@@ -125,7 +125,7 @@ function isWoodOrDecoration(color: RGB): boolean {
   // piezas calidas rondan V~0.95+. Este umbral separa limpiamente ambos casos.
   const isTooBrightForWood = v > 0.93;
   if (isWoodHue && isWoodSat && !isTooBrightForWood) return true;
-  if (s < 0.15) return true; // blancos/grises desaturados (origami, iconos, brillos)
+  if (s < 0.15 && v > 0.9) return true; // blancos/grises muy claros (origami, iconos, brillos) -- un gris mas oscuro puede ser una pieza gris real
   return false;
 }
 

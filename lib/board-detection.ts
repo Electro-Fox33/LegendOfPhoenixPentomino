@@ -134,7 +134,7 @@ function findConsistentBoundaries(allPoints: number[][], tolerance = 15): number
 function looksLikeBoardContent(color: RGB): boolean {
   if (colorDist(color, BACKGROUND_COLOR) <= BACKGROUND_TOLERANCE) return true;
   const { h, s, v } = rgbToHsv(color);
-  const looksLikeWood = h >= 15 && h <= 42 && s >= 0.3 && s <= 0.62;
+  const looksLikeWood = h >= 15 && h <= 42 && s >= 0.3 && s <= 0.62 && v <= 0.95;
   const looksLikeFrame = (h <= 20 || h >= 340) && s <= 0.5 && v >= 0.85; // rosa/salmon claro del marco
   return !looksLikeWood && !looksLikeFrame;
 }
@@ -172,6 +172,14 @@ function extendBoundaries(
   const avgGap = (arr: number[]) => (arr[arr.length - 1] - arr[0]) / (arr.length - 1);
 
   const colGap = avgGap(cols);
+  const rowCenters = rows.slice(0, -1).map((_, i) => Math.round((rows[i] + rows[i + 1]) / 2));
+
+  function stripLooksLikeBoard(cx: number): boolean {
+    const matches = rowCenters.filter((cy) => looksLikeBoardContent(img.getPixel(cx, cy))).length;
+    // exigir mayoria de filas (no alcanza con 1 sola coincidencia, que podia
+    // ser ruido puntual del grano de la madera)
+    return matches > rowCenters.length / 2;
+  }
 
   // extender columnas hacia la derecha
   while (true) {
@@ -179,11 +187,7 @@ function extendBoundaries(
     const right = left + colGap;
     if (right > img.width - 10) break;
     const cx = Math.round((left + right) / 2);
-    const samplesLookLikeBoard = rows
-      .slice(0, -1)
-      .map((_, i) => Math.round((rows[i] + rows[i + 1]) / 2))
-      .some((cy) => looksLikeBoardContent(img.getPixel(cx, cy)));
-    if (!samplesLookLikeBoard) break;
+    if (!stripLooksLikeBoard(cx)) break;
     cols.push(Math.round(right));
   }
 
@@ -195,11 +199,7 @@ function extendBoundaries(
     const left = right - colGap;
     if (left < 10) break;
     const cx = Math.round((left + right) / 2);
-    const samplesLookLikeBoard = rows
-      .slice(0, -1)
-      .map((_, i) => Math.round((rows[i] + rows[i + 1]) / 2))
-      .some((cy) => looksLikeBoardContent(img.getPixel(cx, cy)));
-    if (!samplesLookLikeBoard) break;
+    if (!stripLooksLikeBoard(cx)) break;
     cols.unshift(Math.round(left));
   }
 
